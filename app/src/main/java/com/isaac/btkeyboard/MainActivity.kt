@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
     private enum class Modo { NORMAL, PREGUNTAR_NOMBRE, PREGUNTAR_CODIGO, EDITAR_NOMBRE, EDITAR_CODIGO }
     private var modo = Modo.NORMAL
     private var nombrePendiente: String? = null
+    private var articulosActuales: List<Map.Entry<String, String>> = emptyList()
 
     private val executor = Executors.newSingleThreadExecutor()
 
@@ -131,11 +132,48 @@ class MainActivity : AppCompatActivity() {
 
     // ---------------- Control por voz ----------------
 
+    private var yaResuelto = false // evita procesar el mismo resultado dos veces (parcial + final)
+
     private fun iniciarVoz() {
         modo = Modo.NORMAL
         voiceModeActive = true
         findViewById<Button>(R.id.btnVoiceToggle).text = "Detener reconocimiento por voz"
         voiceStatus.text = "Escuchando..."
+        if (speechRecognizer == null) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onResults(results: Bundle?) {
+                    if (yaResuelto) return
+                    val texto = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
+                    yaResuelto = true
+                    procesarTexto(texto)
+                }
+                override fun onPartialResults(partialResults: Bundle?) {
+                    // Solo reacciona anticipadamente en modo normal (no mientras pregunta nombre/código),
+                    // y solo si el parcial YA contiene una palabra completa de un artículo guardado.
+                    if (yaResuelto || modo != Modo.NORMAL) return
+                    val texto = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+                    val normalizado = ArticleStore.normalize(texto)
+                    if (normalizado.contains("nuevo articulo") || normalizado.contains("editar articulo")) return
+                    val map = ArticleStore.getAll(this@MainActivity)
+                    val match = map.entries.firstOrNull { normalizado.contains(it.key) }
+                    if (match != null) {
+                        yaResuelto = true
+                        speechRecognizer?.stopListening()
+                        procesarTexto(texto)
+                    }
+                }
+                override fun onError(error: Int) {
+                    if (voiceModeActive) escucharUnaVez() // reintenta
+                }
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+        }
         escucharUnaVez()
     }
 
@@ -148,29 +186,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun escucharUnaVez() {
         if (!voiceModeActive) return
-        if (speechRecognizer == null) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
-        }
+        yaResuelto = false
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L)
         }
-        speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onResults(results: Bundle?) {
-                val texto = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
-                procesarTexto(texto)
-            }
-            override fun onError(error: Int) {
-                if (voiceModeActive) escucharUnaVez() // reintenta
-            }
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onPartialResults(partialResults: Bundle?) {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
         speechRecognizer?.startListening(intent)
     }
 
@@ -221,7 +245,6 @@ class MainActivity : AppCompatActivity() {
                     nombrePendiente = null
                 } else {
                     decir("No entendí el código, dilo de nuevo")
-                    // se mantiene en Modo.PREGUNTAR_CODIGO
                 }
             }
 
@@ -238,7 +261,6 @@ class MainActivity : AppCompatActivity() {
                         modo = Modo.NORMAL
                         nombrePendiente = null
                     }
-                    // si no dijo "cancelar", se mantiene en Modo.EDITAR_NOMBRE para reintentar
                 }
             }
 
@@ -252,7 +274,6 @@ class MainActivity : AppCompatActivity() {
                     nombrePendiente = null
                 } else {
                     decir("No entendí el código, dilo de nuevo")
-                    // se mantiene en Modo.EDITAR_CODIGO
                 }
             }
         }
@@ -260,8 +281,57 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshArticleList() {
         val map = ArticleStore.getAll(this)
-        val items = map.entries.map { "${it.key} = ${it.value}" }
+        articulosActuales = map.entries.toList()
+        val items = articulosActuales.map { "${it.key} = ${it.value}" }
         articleListView.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, items)
+        articleListView.setOnItemClickListener { _, _, position, _ ->
+            val entry = articulosActuales[position]
+            mostrarDialogoEditar(entry.key, entry.value)
+        }
+    }
+
+    private fun mostrarDialogoEditar(nombreActual: String, codigoActual: String) {
+        val layout = LinearLayout(this)
+        layout.orientation = LinearLayout.VERTICAL
+        val padding = (16 * resources.displayMetrics.density).toInt()
+        layout.setPadding(padding, padding, padding, padding)
+
+        val nombreLabel = TextView(this)
+        nombreLabel.text = "Nombre del artículo"
+        val nombreInput = EditText(this)
+        nombreInput.setText(nombreActual)
+
+        val codigoLabel = TextView(this)
+        codigoLabel.text = "Código"
+        val codigoInput = EditText(this)
+        codigoInput.setText(codigoActual)
+        codigoInput.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+
+        layout.addView(nombreLabel)
+        layout.addView(nombreInput)
+        layout.addView(codigoLabel)
+        layout.addView(codigoInput)
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Editar artículo")
+            .setView(layout)
+            .setPositiveButton("Guardar") { _, _ ->
+                val nuevoNombre = nombreInput.text.toString().trim()
+                val nuevoCodigo = codigoInput.text.toString().trim()
+                if (nuevoNombre.isNotEmpty() && nuevoCodigo.isNotEmpty()) {
+                    if (ArticleStore.normalize(nuevoNombre) != ArticleStore.normalize(nombreActual)) {
+                        ArticleStore.delete(this, nombreActual)
+                    }
+                    ArticleStore.addOrUpdate(this, nuevoNombre, nuevoCodigo)
+                    refreshArticleList()
+                }
+            }
+            .setNeutralButton("Eliminar") { _, _ ->
+                ArticleStore.delete(this, nombreActual)
+                refreshArticleList()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     private fun setStatus(msg: String) {
@@ -334,9 +404,9 @@ class MainActivity : AppCompatActivity() {
                 val pair = HidKeycodes.forChar(c) ?: continue
                 val (mod, keycode) = pair
                 hidDevice?.sendReport(device, 0, HidKeycodes.keyDownReport(mod, keycode))
-                Thread.sleep(15)
+                Thread.sleep(25)
                 hidDevice?.sendReport(device, 0, HidKeycodes.keyUpReport)
-                Thread.sleep(15)
+                Thread.sleep(25)
             }
         }.start()
     }
