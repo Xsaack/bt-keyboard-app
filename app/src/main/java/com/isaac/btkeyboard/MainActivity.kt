@@ -149,8 +149,6 @@ class MainActivity : AppCompatActivity() {
                     procesarTexto(texto)
                 }
                 override fun onPartialResults(partialResults: Bundle?) {
-                    // Solo reacciona anticipadamente en modo normal (no mientras pregunta nombre/código),
-                    // y solo si el parcial YA contiene una palabra completa de un artículo guardado.
                     if (yaResuelto || modo != Modo.NORMAL) return
                     val texto = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
                     val normalizado = ArticleStore.normalize(texto)
@@ -159,12 +157,12 @@ class MainActivity : AppCompatActivity() {
                     val match = map.entries.firstOrNull { normalizado.contains(it.key) }
                     if (match != null) {
                         yaResuelto = true
-                        speechRecognizer?.stopListening()
+                        speechRecognizer?.cancel()
                         procesarTexto(texto)
                     }
                 }
                 override fun onError(error: Int) {
-                    if (voiceModeActive) escucharUnaVez() // reintenta
+                    if (voiceModeActive) escucharUnaVez()
                 }
                 override fun onReadyForSpeech(params: Bundle?) {}
                 override fun onBeginningOfSpeech() {}
@@ -191,11 +189,14 @@ class MainActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 500L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300L)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 300L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 300L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 200L)
         }
-        speechRecognizer?.startListening(intent)
+        android.os.Handler(mainLooper).postDelayed({
+            if (voiceModeActive) speechRecognizer?.startListening(intent)
+        }, 120)
     }
 
     private fun decir(texto: String) {
