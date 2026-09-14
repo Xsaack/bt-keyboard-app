@@ -134,13 +134,27 @@ class MainActivity : AppCompatActivity() {
 
     private var yaResuelto = false // evita procesar el mismo resultado dos veces (parcial + final)
 
+    // Usa el reconocedor "en el dispositivo" (offline real, Android 13+) si está disponible
+    // y el paquete de español ya está descargado; si no, usa el normal (en línea).
+    private fun crearRecognizer(): SpeechRecognizer {
+        val disponibleOffline = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        voiceStatus.text = if (disponibleOffline) "Usando reconocimiento en el dispositivo (offline)."
+                            else "Usando reconocimiento en línea."
+        return if (disponibleOffline) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(this)
+        }
+    }
+
     private fun iniciarVoz() {
         modo = Modo.NORMAL
         voiceModeActive = true
         findViewById<Button>(R.id.btnVoiceToggle).text = "Detener reconocimiento por voz"
         voiceStatus.text = "Escuchando..."
         if (speechRecognizer == null) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+            speechRecognizer = crearRecognizer()
             speechRecognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle?) {
                     if (yaResuelto) return
@@ -189,7 +203,6 @@ class MainActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 300L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 300L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 200L)
