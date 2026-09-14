@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textSize="15sp"
+        android:paddingBottom="12dp"
+        android:text="Estado: sin iniciar" />
+
+    <Button
+        android:id="@+id/btnRegister"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="1. Registrar celular como teclado" />
+
+    <Button
+        android:id="@+id/btnDiscoverable"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="2. Hacerme visible por Bluetooth (2 min)" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="3. En la PC: Configuración > Bluetooth > Agregar dispositivo, busca y empareja tu celular." />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="4. Dispositivos ya emparejados (toca uno para conectar como teclado):" />
+
+    <ListView
+        android:id="@+id/deviceList"
+        android:layout_width="match_parent"
+        android:layout_height="160dp" />
+
+    <Button
+        android:id="@+id/btnRefreshDevices"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Actualizar lista de dispositivos" />
+
+    <EditText
+        android:id="@+id/testText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:hint="Texto de prueba (ej. 24)"
+        android:text="24" />
+
+    <Button
+        android:id="@+id/btnSendTest"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="5. Enviar prueba a la PC" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:textStyle="bold"
+        android:text="Control por voz" />
+
+    <TextView
+        android:id="@+id/voiceStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Di 'nuevo artículo' para agregar uno, o 'editar artículo' para cambiar un código." />
+
+    <Button
+        android:id="@+id/btnVoiceToggle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="6. Iniciar reconocimiento por voz" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textStyle="bold"
+        android:text="Artículos guardados" />
+
+    <ListView
+        android:id="@+id/articleList"
+        android:layout_width="match_parent"
+        android:layout_height="160dp" />
+
+</LinearLayout>
+</ScrollView>
