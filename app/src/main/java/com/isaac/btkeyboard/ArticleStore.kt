@@ -41,4 +41,11 @@ object ArticleStore {
         val text = map.entries.joinToString("\n") { "${it.key}=${it.value}" }
         saveRawText(context, text)
     }
+
+    fun delete(context: Context, name: String) {
+        val map = getAll(context).toMutableMap()
+        map.remove(normalize(name))
+        val text = map.entries.joinToString("\n") { "${it.key}=${it.value}" }
+        saveRawText(context, text)
+    }
 }
