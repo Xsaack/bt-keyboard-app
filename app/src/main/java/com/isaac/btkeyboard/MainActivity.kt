@@ -339,6 +339,33 @@ class MainActivity : AppCompatActivity() {
             val entry = articulosActuales[position]
             mostrarDialogoEditar(entry.key, entry.value)
         }
+        ajustarAlturaLista(articleListView)
+    }
+
+    // ListView dentro de ScrollView no crece solo; esto calcula la altura real
+    // que ocupan todos los artículos para que se vean completos, sin cortarse.
+    private fun ajustarAlturaLista(listView: ListView) {
+        val adapter = listView.adapter ?: return
+        if (adapter.count == 0) {
+            val params = listView.layoutParams
+            params.height = 0
+            listView.layoutParams = params
+            return
+        }
+        var totalHeight = 0
+        val anchoMedida = android.view.View.MeasureSpec.makeMeasureSpec(
+            listView.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels,
+            android.view.View.MeasureSpec.EXACTLY
+        )
+        for (i in 0 until adapter.count) {
+            val item = adapter.getView(i, null, listView)
+            item.measure(anchoMedida, android.view.View.MeasureSpec.UNSPECIFIED)
+            totalHeight += item.measuredHeight
+        }
+        val params = listView.layoutParams
+        params.height = totalHeight + (listView.dividerHeight * (adapter.count - 1))
+        listView.layoutParams = params
+        listView.requestLayout()
     }
 
     private fun mostrarDialogoEditar(nombreActual: String, codigoActual: String) {
