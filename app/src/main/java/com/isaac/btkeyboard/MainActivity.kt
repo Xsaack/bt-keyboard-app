@@ -134,18 +134,72 @@ class MainActivity : AppCompatActivity() {
 
     private var yaResuelto = false // evita procesar el mismo resultado dos veces (parcial + final)
 
+    private var usandoOffline = false
+    private var watchdogToken: Runnable? = null
+
     // Usa el reconocedor "en el dispositivo" (offline real, Android 13+) si está disponible
     // y el paquete de español ya está descargado; si no, usa el normal (en línea).
-    private fun crearRecognizer(): SpeechRecognizer {
-        val disponibleOffline = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
-        voiceStatus.text = if (disponibleOffline) "Usando reconocimiento en el dispositivo (offline)."
+    private fun crearRecognizer(offline: Boolean): SpeechRecognizer {
+        usandoOffline = offline
+        voiceStatus.text = if (offline) "Usando reconocimiento en el dispositivo (offline)."
                             else "Usando reconocimiento en línea."
-        return if (disponibleOffline) {
+        return if (offline) {
             SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
         } else {
             SpeechRecognizer.createSpeechRecognizer(this)
         }
+    }
+
+    private fun hayOfflineDisponible(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+
+    private fun cambiarAOnline() {
+        if (!usandoOffline) return // ya está en línea, no hay a qué cambiar
+        voiceStatus.text = "El modo offline no respondió, cambiando a en línea..."
+        speechRecognizer?.destroy()
+        speechRecognizer = crearRecognizer(offline = false)
+        speechRecognizer?.setRecognitionListener(crearListener())
+        escucharUnaVez()
+    }
+
+    private fun crearListener(): RecognitionListener = object : RecognitionListener {
+        override fun onResults(results: Bundle?) {
+            cancelarWatchdog()
+            if (yaResuelto) return
+            val texto = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
+            yaResuelto = true
+            procesarTexto(texto)
+        }
+        override fun onPartialResults(partialResults: Bundle?) {
+            cancelarWatchdog()
+            if (yaResuelto || modo != Modo.NORMAL) return
+            val texto = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+            val normalizado = ArticleStore.normalize(texto)
+            if (normalizado.contains("nuevo articulo") || normalizado.contains("editar articulo")) return
+            val map = ArticleStore.getAll(this@MainActivity)
+            val match = map.entries.firstOrNull { normalizado.contains(it.key) }
+            if (match != null) {
+                yaResuelto = true
+                speechRecognizer?.cancel()
+                procesarTexto(texto)
+            }
+        }
+        override fun onError(error: Int) {
+            cancelarWatchdog()
+            if (voiceModeActive) escucharUnaVez()
+        }
+        override fun onReadyForSpeech(params: Bundle?) { cancelarWatchdog() }
+        override fun onBeginningOfSpeech() { cancelarWatchdog() }
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    private fun cancelarWatchdog() {
+        watchdogToken?.let { android.os.Handler(mainLooper).removeCallbacks(it) }
+        watchdogToken = null
     }
 
     private fun iniciarVoz() {
@@ -154,37 +208,8 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnVoiceToggle).text = "Detener reconocimiento por voz"
         voiceStatus.text = "Escuchando..."
         if (speechRecognizer == null) {
-            speechRecognizer = crearRecognizer()
-            speechRecognizer?.setRecognitionListener(object : RecognitionListener {
-                override fun onResults(results: Bundle?) {
-                    if (yaResuelto) return
-                    val texto = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: ""
-                    yaResuelto = true
-                    procesarTexto(texto)
-                }
-                override fun onPartialResults(partialResults: Bundle?) {
-                    if (yaResuelto || modo != Modo.NORMAL) return
-                    val texto = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
-                    val normalizado = ArticleStore.normalize(texto)
-                    if (normalizado.contains("nuevo articulo") || normalizado.contains("editar articulo")) return
-                    val map = ArticleStore.getAll(this@MainActivity)
-                    val match = map.entries.firstOrNull { normalizado.contains(it.key) }
-                    if (match != null) {
-                        yaResuelto = true
-                        speechRecognizer?.cancel()
-                        procesarTexto(texto)
-                    }
-                }
-                override fun onError(error: Int) {
-                    if (voiceModeActive) escucharUnaVez()
-                }
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
+            speechRecognizer = crearRecognizer(offline = hayOfflineDisponible())
+            speechRecognizer?.setRecognitionListener(crearListener())
         }
         escucharUnaVez()
     }
@@ -201,15 +226,27 @@ class MainActivity : AppCompatActivity() {
         yaResuelto = false
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-MX")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-US")
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            // Recorta la espera de silencio tras hablar (por defecto ronda los 2 segundos)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 300L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 300L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 200L)
         }
+        // Pequeño respiro para que el reconocedor anterior termine de cerrarse
+        // y no choque con el nuevo (evita el error "recognizer busy" que retrasa todo).
         android.os.Handler(mainLooper).postDelayed({
             if (voiceModeActive) speechRecognizer?.startListening(intent)
         }, 120)
+
+        // Vigilante: si el motor offline no da ninguna señal de vida en 4 segundos,
+        // se asume roto en este equipo y se cambia permanentemente a en línea.
+        cancelarWatchdog()
+        if (usandoOffline) {
+            val token = Runnable { if (voiceModeActive) cambiarAOnline() }
+            watchdogToken = token
+            android.os.Handler(mainLooper).postDelayed(token, 4000)
+        }
     }
 
     private fun decir(texto: String) {
